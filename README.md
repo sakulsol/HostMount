@@ -1,3 +1,43 @@
+# HostMount
+
+Play PS5 games stored on your **Windows PC** over the local network. HostMount installs a small
+starter of a game on the console (eboot, libraries and small files, usually a few hundred MB) and the
+console reads the big files from the PC while you play.
+
+HostMount is [BlazingMount](https://github.com/Kaoz625/blazingmount) by NYC Tailblazers and the
+BlazingMount contributors, made to run on Windows and given a window instead of a terminal. The
+streaming engine, the console payload and the installer are theirs; see [What HostMount
+changes](#what-hostmount-changes). The original README follows below.
+
+## Quick start (Windows)
+
+You need: a jailbroken PS5 with etaHEN (FTP on port 2121) and a game mounter such as
+[Kraken Mount](https://github.com/quer3q/kraken-mount) or ShadowMount+, Python 3 on the PC, and the PC
+and the PS5 on the same network (a cable is much better than Wi-Fi).
+
+1. Download `hostmount-windows-<version>.zip` from Releases and unzip it.
+2. Open `HostMount.pyw`. Check the PS5 IP and firmware in **Settings**.
+3. In **Install a game**, pick the game folder (the one with `sce_sys`) and press **Install on the PS5**.
+4. When it is done the game appears on the home screen. Keep HostMount open (minimised) while you
+   play: it runs the file server the game reads from.
+
+With Kraken Mount, HostMount turns off Kraken's bundled ampr-emu-ng for that game, because the game
+already carries BlazingMount's own `libSceAmpr.sprx`.
+
+Tested with firmware 12.60.
+
+## What HostMount changes
+
+- `host/gui/HostMount.pyw`: the window (install with progress, games list, file server on/off).
+- Windows fixes in `host/serve/dirserve.py`, `install/blazingmount-install.py` and
+  `host/engine/mkgame.py` (no `os.pread`; uploads verified over the console FTP instead of a web
+  server; works without the decrypt and backport tools, for games already backported).
+- `.github/workflows/hostmount.yml`: builds the console parts from source and the Windows kit.
+
+HostMount is GPL-3.0-or-later, like BlazingMount.
+
+---
+
 # BlazingMount
 
 **A general network-drive mount-and-play tool for jailbroken PlayStation 5.**

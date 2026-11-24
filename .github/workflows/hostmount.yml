@@ -1,0 +1,77 @@
+# Builds HostMount: the console parts of BlazingMount (the libSceAmpr.sprx link fork from
+# drakmor/ampr_emu + BlazingMount's overlay, and blazingmountd.elf) and the Windows PC kit
+# (host scripts with the Windows changes, the built fork and the HostMount window).
+# Every push builds an artifact; a tag v* also publishes a release with the kit zip.
+name: hostmount
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SDK_URL: https://github.com/ps5-payload-dev/sdk/releases/download/v0.43/ps5-payload-sdk.zip
+  SDK_SHA256: a9cc9929f21b2b2c5d5b309f3bab4997067c45281c0622cf4838b1aecba66fcb
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Toolchain (clang/lld 19, cmake, PS5 payload SDK v0.43)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-19 lld-19 llvm-19 make cmake python3 unzip zip
+          echo "/usr/lib/llvm-19/bin" >> "$GITHUB_PATH"
+          curl -fsSL --retry 3 "$SDK_URL" -o /tmp/sdk.zip
+          echo "$SDK_SHA256  /tmp/sdk.zip" | sha256sum -c -
+          sudo unzip -q /tmp/sdk.zip -d /opt
+          echo "PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk" >> "$GITHUB_ENV"
+          echo "PS5_CLANG=/usr/lib/llvm-19/bin/clang" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - name: libSceAmpr.sprx link fork
+        run: |
+          cd console/link-fork
+          WORK="$RUNNER_TEMP/fork" sh tools/build-fork.sh
+          cp build/libSceAmpr.sprx prebuilt/libSceAmpr.sprx
+      - name: blazingmountd.elf
+        run: |
+          cd console/blazingmountd
+          BM_REV="$(git rev-parse --short HEAD)" sh build.sh
+      - name: Python check
+        run: python3 -m py_compile host/gui/HostMount.pyw host/serve/dirserve.py install/blazingmount-install.py host/engine/mkgame.py
+      - name: Package
+        run: |
+          VER="${GITHUB_REF_NAME#v}"; [ "$GITHUB_REF_TYPE" = tag ] || VER="$(git rev-parse --short HEAD)"
+          mkdir -p dist/console kit
+          cp console/link-fork/build/libSceAmpr.sprx console/blazingmountd/out/blazingmountd.elf dist/console/
+          git archive --format=tar --prefix=hostmount/ HEAD host install docs README.md LICENSE COPYING CREDITS.md WINDOWS-PATCH | tar -x -C kit
+          mkdir -p kit/hostmount/console/link-fork/prebuilt
+          cp dist/console/libSceAmpr.sprx kit/hostmount/console/link-fork/prebuilt/
+          cp host/gui/HostMount.pyw kit/hostmount/HostMount.pyw
+          (cd kit && zip -qr "../dist/hostmount-windows-$VER.zip" hostmount)
+          (cd dist && sha256sum console/* *.zip > SHA256SUMS && cat SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hostmount
+          path: dist
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: hostmount
+          path: dist
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --title "HostMount $GITHUB_REF_NAME" --notes "Windows kit (unzip, open HostMount.pyw) and console files. See README." dist/*.zip dist/console/* dist/SHA256SUMS
