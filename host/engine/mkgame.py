@@ -145,7 +145,11 @@ def decrypt(src, rel, dst):
             shutil.copyfile(raw, dst)
             return True
         sys.path.insert(0, os.path.join(BACKPORT_TOOLS, "src"))
-        from decrypt_fself import UnsignedELFConverter
+        try:
+            from decrypt_fself import UnsignedELFConverter
+        except ImportError:
+            shutil.copyfile(raw, dst)   # Windows build: no decrypt_fself; elf_needs scans the SELF's plaintext strings
+            return True
         return UnsignedELFConverter().convert_file(raw, dst)
     finally:
         if os.path.exists(raw):
@@ -154,8 +158,14 @@ def decrypt(src, rel, dst):
 
 def elf_needs(path):
     """(DT_NEEDED names, import NIDs) of a plain PS5 ELF."""
-    from mkbackport import Dyn  # same folder as this file
     data = open(path, "rb").read()
+    try:
+        from mkbackport import Dyn  # same folder as this file
+    except ImportError:
+        # Windows build: no mkbackport.py. Library names and NID#lib#mod import strings from the raw bytes.
+        names = sorted(set(m.decode() for m in re.findall(rb"lib[A-Za-z0-9_]+\.(?:prx|sprx)", data)))
+        nids = set(m.decode() for m in re.findall(rb"([A-Za-z0-9+\-_]{11})#[A-Za-z0-9]{1,3}#[A-Za-z0-9]{1,3}", data))
+        return names, nids
     d = Dyn(data)
     needed = [d.cstr(v) for t, v in d.tags if t == 1]
     tab = data[d.str_off:d.str_off + d.str_size]

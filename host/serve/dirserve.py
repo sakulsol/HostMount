@@ -262,12 +262,13 @@ class Handler(BaseHTTPRequestHandler):
                 with open(real, "rb") as fh:
                     fd = fh.fileno()
                     while sent < length:
-                        buf = os.pread(fd, min(CHUNK, length - sent), start + sent)
+                        fh.seek(start + sent)
+                        buf = fh.read(min(CHUNK, length - sent))
                         if not buf:
                             break
                         self.wfile.write(buf)
                         sent += len(buf)
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
         ms = int((time.time() - t0) * 1000)
         if status == 206:

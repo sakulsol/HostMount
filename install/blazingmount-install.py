@@ -41,12 +41,15 @@ def sha256_file(p):
     return h.hexdigest()
 
 
+FTP_PORT = 2121
+
+
 def websrv_sha256(console, remote):
-    url = "http://%s:8080/fs%s" % (console, remote)
+    # Windows build: read the file back over the console FTP (no websrv on :8080 needed).
     h = hashlib.sha256()
-    with urllib.request.urlopen(url, timeout=120) as r:
-        for b in iter(lambda: r.read(1 << 20), b""):
-            h.update(b)
+    ftp = ftp_connect(console, FTP_PORT)
+    ftp.retrbinary("RETR " + remote, h.update)
+    ftp.quit()
     return h.hexdigest()
 
 
@@ -102,6 +105,9 @@ def push_tree(console, port, local_root, stage_root, final_root):
     for lp, rel in sorted(files, key=lambda x: x[1]):
         remote = stage_root + "/" + rel
         ftp_put(ftp, lp, remote)
+        if rel.lower().endswith((".prx", ".sprx", ".elf", ".self")) or rel.lower().endswith("eboot.bin"):
+            # The console FTP decrypts SELF files on download (content AND size): they cannot be read back, trust the STOR.
+            continue
         want = sha256_file(lp)
         got = websrv_sha256(console, remote)
         if want != got:
@@ -128,6 +134,8 @@ def main():
     ap.add_argument("--ftp-port", type=int, default=2121)
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
+    global FTP_PORT
+    FTP_PORT = a.ftp_port
 
     out = tempfile.mkdtemp(prefix="blazingmount-")
     try:
