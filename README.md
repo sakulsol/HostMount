@@ -9,6 +9,9 @@ BlazingMount contributors, made to run on Windows and given a window instead of 
 streaming engine, the console payload and the installer are theirs; see [What HostMount
 changes](#what-hostmount-changes). The original README follows below.
 
+<p align="center"><img src="docs/img/hostmount-compacta.png" alt="HostMount: install, progress and done screens"></p>
+<p align="center"><img src="docs/img/hostmount-biblioteca.png" width="800" alt="HostMount maximised: the library"></p>
+
 ## Quick start (Windows)
 
 You need: a jailbroken PS5 with etaHEN (FTP on port 2121) and a game mounter such as
