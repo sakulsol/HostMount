@@ -345,10 +345,33 @@ def ftp_open(ps5):
 
 
 def ftp_names(ftp, path):
+    """Nombres dentro de path en la PS5; [] si la carpeta no existe. Usa LIST, porque el NLST del FTP de
+    etaHEN no devuelve la lista; NLST queda como respaldo si LIST trae un formato que no se entiende."""
     try:
-        return [n.rsplit("/", 1)[-1] for n in ftp.nlst(path)]
-    except ftplib.all_errors:
+        ftp.cwd(path)
+    except ftplib.error_perm:
         return []
+    lines = []
+    try:
+        ftp.retrlines("LIST", lines.append)
+    finally:
+        try:
+            ftp.cwd("/")
+        except ftplib.all_errors:
+            pass
+    names = []
+    for line in lines:
+        parts = line.split(None, 8)
+        if len(parts) >= 9 and line[:1] in "dl-":
+            name = parts[8].split(" -> ")[0]
+            if name not in (".", ".."):
+                names.append(name)
+    if lines and not names:
+        try:
+            names = [n.rsplit("/", 1)[-1] for n in ftp.nlst(path)]
+        except ftplib.all_errors:
+            pass
+    return names
 
 
 def ftp_rmtree(ftp, path):
