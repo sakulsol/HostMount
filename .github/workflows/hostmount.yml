@@ -15,6 +15,7 @@ permissions:
   contents: read
 
 env:
+  AMPR_EMU_REPO: https://github.com/drakmor/ampr_emu
   SDK_URL: https://github.com/ps5-payload-dev/sdk/releases/download/v0.43/ps5-payload-sdk.zip
   SDK_SHA256: a9cc9929f21b2b2c5d5b309f3bab4997067c45281c0622cf4838b1aecba66fcb
 
