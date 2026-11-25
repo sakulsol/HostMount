@@ -258,6 +258,7 @@ REFUSALS = (
                                  "permite leer los datos desde el PC. Instálalo de la forma normal."),
     ("needs FW", "El juego pide un firmware mayor que el de tu PS5 y no tiene backport."),
     ("already exist", "Ya existe en la PS5: quítalo desde la biblioteca y vuelve a instalarlo."),
+    ("libScePlayGo.sprx", "Falta el emulador de PlayGo (host/scene-fakelib/libScePlayGo.sprx) en el kit."),
 )
 
 
@@ -857,6 +858,11 @@ class App:
         except (OSError, ValueError) as e:
             return self.pick_error("No se pudo leer param.json: %s" % e)
         g["folder"] = app
+        packed = next((n for n in ("ampr_zstd.index", "ampr_assets.index") if os.path.isfile(os.path.join(app, n))), None)
+        if packed:
+            return self.pick_error("Este juego está comprimido (%s, formato de Kraken Mount). Por red solo se pueden "
+                                   "servir juegos en carpeta sin comprimir; este instálalo de la forma normal."
+                                   % ("zstd" if "zstd" in packed else "LZ4"))
         self.current = g
         self.g_empty.pack_forget()
         self.gcard.pack(fill="x", pady=(self.px(14), 0))
@@ -1452,6 +1458,9 @@ class App:
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1",
                    BLAZINGMOUNT_FOLDER_DIR=os.path.dirname(g["folder"]), BLAZINGMOUNT_HOST_IP=ip,
                    BLAZINGMOUNT_MIN_CONSOLE_FW="%.2f" % cfw)
+        scene = os.path.join(self.kit, "host", "scene-fakelib")
+        if os.path.isfile(os.path.join(scene, "libScePlayGo.sprx")) and not env.get("BLAZINGMOUNT_SCENE_FAKELIB"):
+            env["BLAZINGMOUNT_SCENE_FAKELIB"] = scene      # PlayGo emulator for folder games that need it
         cmd = [PY, "-u", "-c", RUNNER, os.path.join(self.kit, "install", "blazingmount-install.py"),
                "--console", ps5, "--host-ip", ip, "--game", g["folder"], "--console-fw", "%.2f" % cfw,
                "--ftp-port", str(FTP_PORT)]
