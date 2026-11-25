@@ -224,16 +224,52 @@ def port_open(host, port, timeout=1.5):
         return False
 
 
-def local_ip(ps5):
-    """IP de este PC en la red de la PS5 (la que usa la ruta hacia ella, no la de la VPN)."""
+def local_ip(ps5, override=None):
+    """IP de este PC en la red de la PS5. Prefiere una IP de la misma subred que la PS5: con una VPN
+    (Tailscale, por ejemplo) la ruta hacia la PS5 puede salir por la VPN, y la PS5 no llega a esa IP."""
+    if override:
+        return override
+    ips = set()
+    try:
+        for ai in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.add(ai[4][0])
+    except OSError:
+        pass
+    route = None
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect((ps5, 9))
-        return s.getsockname()[0]
+        route = s.getsockname()[0]
+        ips.add(route)
     except OSError:
-        return None
+        pass
     finally:
         s.close()
+    net = ps5.rsplit(".", 1)[0] + "."
+    same = sorted(ip for ip in ips if ip.startswith(net) and ip != ps5)
+    if route in same:
+        return route
+    return same[0] if same else route
+
+
+# Motivos conocidos por los que el instalador se niega, en palabras claras.
+REFUSALS = (
+    ("does not load libSceAmpr", "Este juego no se puede jugar por red: su eboot no usa libSceAmpr, que es lo que "
+                                 "permite leer los datos desde el PC. Instálalo de la forma normal."),
+    ("needs FW", "El juego pide un firmware mayor que el de tu PS5 y no tiene backport."),
+    ("already exist", "Ya existe en la PS5: quítalo desde la biblioteca y vuelve a instalarlo."),
+)
+
+
+def explain_failure(lines, rc):
+    """El motivo útil de un fallo del instalador: la línea «refusing»/«ERROR», no el traceback."""
+    key = next((l for l in lines if l.lower().startswith(("refusing", "error", "verify failed"))), None)
+    key = key or next((l for l in reversed(lines) if l.strip() and not l.startswith((" ", "Traceback", "subprocess."))), None)
+    key = key or "el instalador terminó con código %s" % rc
+    for needle, text in REFUSALS:
+        if needle.lower() in key.lower():
+            return text
+    return key
 
 
 def fw_of(v):
@@ -1261,9 +1297,10 @@ class App:
         label(b, "Ajustes", 15, True).pack(fill="x", pady=(P(12), 0))
         self.set_vars = {}
         for key, title, hint in (("ps5", "IP de la PS5", "La de etaHEN; FTP en el puerto %d." % FTP_PORT),
-                                 ("fw", "Firmware de la PS5", "Para saber si un juego necesita backport.")):
+                                 ("fw", "Firmware de la PS5", "Para saber si un juego necesita backport."),
+                                 ("pc_ip", "IP de este PC", "Vacío = automática (la de la red de la PS5).")):
             label(b, title, 8, True, fg="soft").pack(fill="x", pady=(P(14), P(5)))
-            v = tk.StringVar(value=self.cfg[key])
+            v = tk.StringVar(value=self.cfg.get(key, ""))
             tk.Entry(b, textvariable=v, font=(FONT, 9), bg=C["field"], fg=C["text"], insertbackground=C["text"],
                      relief="flat", highlightthickness=1, highlightbackground=C["fieldline"],
                      highlightcolor=C["accent"]).pack(fill="x", ipady=P(6))
@@ -1289,12 +1326,15 @@ class App:
 
     def save_settings(self):
         ps5 = self.set_vars["ps5"].get().strip()
+        pc = self.set_vars["pc_ip"].get().strip()
         try:
             socket.inet_aton(ps5)
+            pc and socket.inet_aton(pc)
             float(self.set_vars["fw"].get().replace(",", "."))
         except (OSError, ValueError):
             return messagebox.showerror("Ajustes", "Revisa la IP y el firmware (por ejemplo 192.168.1.38 y 12.60).")
         self.cfg["ps5"], self.cfg["fw"] = ps5, self.set_vars["fw"].get().strip().replace(",", ".")
+        self.cfg["pc_ip"] = pc
         save_cfg(self.cfg)
         self.ps5_games, self._scanned = None, 0
         self.pill_fw.set("FW " + self.cfg["fw"])
@@ -1343,7 +1383,7 @@ class App:
         self.up_total = self.up_done = self.up_bytes = self.up_mib = 0
         self.up_hits = deque()
         self.p_name.configure(text=g["name"])
-        self.p_sub.configure(text="Instalando en la PS5 %s…" % self.cfg["ps5"], fg=C["mute"])
+        self.p_sub.configure(text="Instalando en la PS5 %s…" % self.cfg["ps5"], fg=C["mute"], wraplength=self.px(330))
         self.set_icon(self.p_cover, g["icon"], 52, "bg")
         self.p_phase.configure(text="Comprobando…", fg=C["text"])
         self.p_pct.configure(text="")
@@ -1363,7 +1403,7 @@ class App:
 
     def _precheck(self, g):
         ps5 = self.cfg["ps5"]
-        ip = local_ip(ps5)
+        ip = local_ip(ps5, self.cfg.get("pc_ip"))
         if not port_open(ps5, FTP_PORT, 4):
             return self.post(self.install_failed, "check", "La PS5 no responde por FTP en %s:%d. ¿Está encendida con etaHEN?" % (ps5, FTP_PORT))
         if not ip:
@@ -1422,7 +1462,7 @@ class App:
         except OSError as e:
             return self.post(self.install_failed, "starter", "No se pudo lanzar el instalador: %s" % e)
         self.post(self._set_proc, proc)
-        tail = deque(maxlen=12)
+        tail = deque(maxlen=60)
         ok = False
         for line in proc.stdout:
             line = line.rstrip()
@@ -1506,7 +1546,7 @@ class App:
         if self.install_proc == "cancelled":
             return
         if not ok:
-            msg = next((l for l in reversed(tail) if l.strip()), "el instalador terminó con código %s" % rc)
+            msg = explain_failure(tail, rc)
             return self.install_failed(getattr(self, "cur_step", None) or "starter", msg)
         self.cfg["games"][g["tid"]] = {"name": g["name"], "folder": g["folder"], "version": g["version"],
                                        "installed": time.strftime("%d/%m/%Y %H:%M")}
@@ -1548,7 +1588,7 @@ class App:
         self.step(key, "err")
         self.log(msg, "err")
         self.p_phase.configure(text="No se pudo instalar", fg=C["err"])
-        self.p_sub.configure(text=msg[:120], fg=C["err"])
+        self.p_sub.configure(text=msg[:240], fg=C["err"], wraplength=self.px(330))
         self.p_btn.configure(text="Volver")
         self.p_btn.cmd = lambda: self.show("install")
 
@@ -1581,7 +1621,7 @@ class App:
 
     def _probe(self):
         ps5 = self.cfg["ps5"]
-        res = (local_ip(ps5), port_open(ps5, FTP_PORT), port_open(ps5, KRAKEN_PORT))
+        res = (local_ip(ps5, self.cfg.get("pc_ip")), port_open(ps5, FTP_PORT), port_open(ps5, KRAKEN_PORT))
         self.post(self.set_probe, res)
 
     def set_probe(self, res):
