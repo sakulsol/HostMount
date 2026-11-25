@@ -1,7 +1,7 @@
 # Builds HostMount: the console parts of BlazingMount (the libSceAmpr.sprx link fork from
-# drakmor/ampr_emu + BlazingMount's overlay, and blazingmountd.elf) and the Windows PC kit
-# (host scripts with the Windows changes, the built fork and the HostMount window).
-# Every push builds an artifact; a tag v* also publishes a release with the kit zip.
+# drakmor/ampr_emu + BlazingMount's overlay, and blazingmountd.elf), HostMount.exe (the window, which
+# also runs the kit's Python scripts, so the PC needs no Python) and the Windows kit zip.
+# Every push builds an artifact; a tag v* also publishes a draft release with the kit zip.
 name: hostmount
 
 on:
@@ -20,13 +20,13 @@ env:
   SDK_SHA256: a9cc9929f21b2b2c5d5b309f3bab4997067c45281c0622cf4838b1aecba66fcb
 
 jobs:
-  build:
+  console:
     runs-on: ubuntu-24.04
     steps:
       - name: Toolchain (clang/lld 19, cmake, PS5 payload SDK v0.43)
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-19 lld-19 llvm-19 make cmake python3 unzip zip
+          sudo apt-get install -y --no-install-recommends clang-19 lld-19 llvm-19 make cmake python3 unzip
           echo "/usr/lib/llvm-19/bin" >> "$GITHUB_PATH"
           curl -fsSL --retry 3 "$SDK_URL" -o /tmp/sdk.zip
           echo "$SDK_SHA256  /tmp/sdk.zip" | sha256sum -c -
@@ -45,14 +45,61 @@ jobs:
           BM_REV="$(git rev-parse --short HEAD)" sh build.sh
       - name: Python check
         run: python3 -m py_compile host/gui/HostMount.pyw host/serve/dirserve.py install/blazingmount-install.py host/engine/mkgame.py
-      - name: Package
+      - run: |
+          mkdir -p out
+          cp console/link-fork/build/libSceAmpr.sprx console/blazingmountd/out/blazingmountd.elf out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: console
+          path: out
+
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: HostMount.exe (PyInstaller)
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check -q "pyinstaller==6.*"
+          python -m PyInstaller --noconfirm --onefile --windowed --name HostMount \
+            --icon host/gui/HostMount.ico --add-data "host/gui/HostMount.ico;." \
+            $(python host/gui/hidden_imports.py) host/gui/HostMount.pyw
+      - name: Smoke test (the exe runs a kit script)
+        shell: bash
+        run: |
+          echo 'import http.server, ftplib, hashlib, argparse; print("child ok")' > "$RUNNER_TEMP/t.py"
+          ./dist/HostMount.exe -I "$RUNNER_TEMP/t.py" > "$RUNNER_TEMP/out.txt"
+          cat "$RUNNER_TEMP/out.txt"
+          grep -q "child ok" "$RUNNER_TEMP/out.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exe
+          path: dist/HostMount.exe
+
+  package:
+    needs: [console, exe]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: console
+          path: dist/console
+      - uses: actions/download-artifact@v4
+        with:
+          name: exe
+          path: exe
+      - name: Kit zip
         run: |
           VER="${GITHUB_REF_NAME#v}"; [ "$GITHUB_REF_TYPE" = tag ] || VER="$(git rev-parse --short HEAD)"
-          mkdir -p dist/console kit
-          cp console/link-fork/build/libSceAmpr.sprx console/blazingmountd/out/blazingmountd.elf dist/console/
+          mkdir -p kit
           git archive --format=tar --prefix=hostmount/ HEAD host install docs README.md LICENSE COPYING CREDITS.md WINDOWS-PATCH | tar -x -C kit
           mkdir -p kit/hostmount/console/link-fork/prebuilt
           cp dist/console/libSceAmpr.sprx kit/hostmount/console/link-fork/prebuilt/
+          cp exe/HostMount.exe host/gui/HostMount.ico kit/hostmount/
           cp host/gui/HostMount.pyw kit/hostmount/HostMount.pyw
           (cd kit && zip -qr "../dist/hostmount-windows-$VER.zip" hostmount)
           (cd dist && sha256sum console/* *.zip > SHA256SUMS && cat SHA256SUMS)
@@ -63,7 +110,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: package
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -75,4 +122,4 @@ jobs:
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --title "HostMount $GITHUB_REF_NAME" --notes "Windows kit (unzip, open HostMount.pyw) and console files. See README." dist/*.zip dist/console/* dist/SHA256SUMS
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --title "HostMount $GITHUB_REF_NAME" --notes "Windows kit: unzip and open HostMount.exe. Console files included. See README." dist/*.zip dist/console/* dist/SHA256SUMS

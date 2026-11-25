@@ -12,14 +12,17 @@ changes](#what-hostmount-changes). The original README follows below.
 ## Quick start (Windows)
 
 You need: a jailbroken PS5 with etaHEN (FTP on port 2121) and a game mounter such as
-[Kraken Mount](https://github.com/quer3q/kraken-mount) or ShadowMount+, Python 3 on the PC, and the PC
-and the PS5 on the same network (a cable is much better than Wi-Fi).
+[Kraken Mount](https://github.com/quer3q/kraken-mount) or ShadowMount+, and the PC and the PS5 on the
+same network (a cable is much better than Wi-Fi). No Python needed: `HostMount.exe` includes it.
 
 1. Download `hostmount-windows-<version>.zip` from Releases and unzip it.
-2. Open `HostMount.pyw`. Check the PS5 IP and firmware in **Settings**.
-3. In **Install a game**, pick the game folder (the one with `sce_sys`) and press **Install on the PS5**.
+2. Open `HostMount.exe` (the first time Windows SmartScreen may warn about an unsigned app:
+   *More info* → *Run anyway*). Check the PS5 IP and firmware in **Ajustes**.
+3. Pick the game folder (the one with `sce_sys`) and press **Instalar en la PS5**.
 4. When it is done the game appears on the home screen. Keep HostMount open (minimised) while you
-   play: it runs the file server the game reads from.
+   play: it runs the file server the game reads from. Maximise the window to see your library.
+
+`HostMount.pyw` is the same program for those who prefer running it with their own Python.
 
 With Kraken Mount, HostMount turns off Kraken's bundled ampr-emu-ng for that game, because the game
 already carries BlazingMount's own `libSceAmpr.sprx`.
@@ -28,7 +31,9 @@ Tested with firmware 12.60.
 
 ## What HostMount changes
 
-- `host/gui/HostMount.pyw`: the window (install with progress, games list, file server on/off).
+- `host/gui/HostMount.pyw`: the window: compact for installing (with progress), maximised it
+  shows the library with covers; it also runs the file server. Built as `HostMount.exe`, which can
+  run the kit's Python scripts itself.
 - Windows fixes in `host/serve/dirserve.py`, `install/blazingmount-install.py` and
   `host/engine/mkgame.py` (no `os.pread`; uploads verified over the console FTP instead of a web
   server; works without the decrypt and backport tools, for games already backported).
